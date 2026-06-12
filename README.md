@@ -19,9 +19,12 @@ automatically selects `cuda`, `mps`, or `cpu` when `--device auto` is used.
 
 For each input CT volume, the default command writes:
 
-- `*_vertebral-level.nii.gz`: vertebra instance labels using vertebral level IDs
-- `*_process-body.nii.gz`: posterior process versus vertebral body labels
-- `*_cort-trab.nii.gz`: cortical versus trabecular compartment labels
+- `*_vertebral-level.nii.gz`: vertebra instance labels using VerSe vertebral
+  level IDs, e.g. `20` is L1
+- `*_process-body.nii.gz`: posterior process versus vertebral body labels,
+  where `1` is posterior processes and `2` is vertebral body
+- `*_cort-trab.nii.gz`: cortical versus trabecular compartment labels, where
+  `1` is cortical bone and `2` is trabecular bone
 - `*_centroids.json`: vertebral centroids in the original input scan grid
 
 Two reduced-output modes are available:
@@ -48,6 +51,59 @@ corresponds to L1 in the VerSe convention used by this model:
 `voxel_xyz` is reported in the original input scan coordinate grid.
 In `--localization-only` mode, centroids are generated directly from the
 localization model and include a model response score.
+
+## Label Reference
+
+### `*_vertebral-level.nii.gz`
+
+The vertebral-level output uses the VerSe vertebral label convention:
+
+| Label | Anatomy |
+| ---: | --- |
+| `0` | Background |
+| `1`-`7` | C1-C7 |
+| `8`-`19` | T1-T12 |
+| `20`-`25` | L1-L6 |
+| `28` | Sacrum, when detected |
+
+For example, `20` corresponds to L1.
+
+### `*_process-body.nii.gz`
+
+The process/body output is a binary compartment relabeling inside the vertebral
+segmentation:
+
+| Label | Anatomy |
+| ---: | --- |
+| `0` | Background |
+| `1` | Posterior processes |
+| `2` | Vertebral body |
+
+### `*_cort-trab.nii.gz`
+
+The cortical/trabecular output is derived from the vertebral-level segmentation
+and CT intensities:
+
+| Label | Anatomy |
+| ---: | --- |
+| `0` | Background |
+| `1` | Cortical compartment |
+| `2` | Trabecular compartment |
+
+### `*_centroids.json`
+
+The centroid JSON is keyed by the same vertebral labels as
+`*_vertebral-level.nii.gz`. Each entry contains:
+
+| Field | Meaning |
+| --- | --- |
+| `label` | Vertebral label value, e.g. `20` for L1 |
+| `index` | Internal model index for that label |
+| `voxel_xyz` | Continuous centroid index in original input voxel coordinates |
+| `physical_xyz` | Centroid physical coordinate from the input image geometry |
+| `voxel_count` | Number of voxels for segmentation-derived centroids |
+| `score` | Localization model response, only for `--localization-only` |
+| `source` | Centroid source, usually `segmentation` in normal mode |
 
 ## Installation
 
