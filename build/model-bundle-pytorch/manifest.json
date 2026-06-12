@@ -1,0 +1,41 @@
+{
+  "bundle_name": "spine-segment-model-bundle",
+  "contents": [
+    {
+      "files": [
+        {
+          "bytes": 22927285,
+          "path": "weights/spine-locator.pt",
+          "sha256": "4797348e9251eeef48bebfa454292681ad652b58cdef44faaa5b41901f7a220d"
+        },
+        {
+          "bytes": 28200109,
+          "path": "weights/vertebra-locator.pt",
+          "sha256": "a0c83558833801a1610b79be31a6a8dfbbfdbb6330c15160d37927e5ff776ac5"
+        },
+        {
+          "bytes": 22937909,
+          "path": "weights/vertebra-segmenter.pt",
+          "sha256": "27507ab64e743bb030be66ec440dfa611f715736ae4b6c512c996bdb980b35ad"
+        },
+        {
+          "bytes": 130278936,
+          "path": "weights/process-body-segmenter.pt",
+          "sha256": "fae180b16d090b9df96e9394b6a49e3ca2b8d1a7f80c25c72c413b3644ddb309"
+        },
+        {
+          "bytes": 1597,
+          "path": "weights/conversion_manifest.json",
+          "sha256": "0047dae103866d8b8274b69a80ac0437ebb2d3831559830949c6b81c8005f97a"
+        }
+      ],
+      "id": "spine_segment_weights",
+      "source_root": {
+        "native_torch": "/Users/matthias.walle/Documents/14_GitHub/active/OgoLoco/packages/spine-segment/build/model-bundle-pytorch/native_torch",
+        "verse_relabel": "/Users/matthias.walle/Documents/14_GitHub/active/OgoLoco/packages/spine-segment/build/model-bundle-pytorch/nnunet/Dataset005_VerseRelabel"
+      },
+      "staged_root": "weights"
+    }
+  ],
+  "version": 1
+}

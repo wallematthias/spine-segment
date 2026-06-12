@@ -1,0 +1,38 @@
+{
+  "models": [
+    {
+      "checkpoint_root": "/Users/matthias.walle/Downloads/mdat/spine_localization",
+      "converted_keys": 42,
+      "ignored_source_count": 134,
+      "missing_target_keys": [],
+      "name": "spine_localization",
+      "shape_mismatches": [],
+      "unmapped_source_names": []
+    },
+    {
+      "checkpoint_root": "/Users/matthias.walle/Downloads/mdat/vertebrae_localization",
+      "converted_keys": 52,
+      "ignored_source_count": 113,
+      "missing_target_keys": [],
+      "name": "vertebrae_localization",
+      "shape_mismatches": [],
+      "unmapped_source_names": []
+    },
+    {
+      "checkpoint_root": "/Users/matthias.walle/Downloads/mdat/vertebrae_segmentation",
+      "converted_keys": 42,
+      "ignored_source_count": 92,
+      "missing_target_keys": [],
+      "name": "vertebrae_segmentation",
+      "shape_mismatches": [],
+      "unmapped_source_names": []
+    }
+  ],
+  "outputs": {
+    "spine_localization": "/Users/matthias.walle/Documents/14_GitHub/active/OgoLoco/packages/spine-segment/build/model-bundle/native_torch/spine_localization.pt",
+    "vertebrae_localization": "/Users/matthias.walle/Documents/14_GitHub/active/OgoLoco/packages/spine-segment/build/model-bundle/native_torch/vertebrae_localization.pt",
+    "vertebrae_segmentation": "/Users/matthias.walle/Documents/14_GitHub/active/OgoLoco/packages/spine-segment/build/model-bundle/native_torch/vertebrae_segmentation.pt"
+  },
+  "source": "/Users/matthias.walle/Documents/14_GitHub/active/OgoLoco/packages/spine-segment/build/model-bundle/mdat_tf_tensors.npz",
+  "status": "converted"
+}

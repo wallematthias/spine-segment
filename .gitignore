@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+src/*.egg-info/
+build/*
+!build/model-bundle-pytorch/
+!build/model-bundle-pytorch/manifest.json
+!build/model-bundle-pytorch/weights/
+!build/model-bundle-pytorch/weights/*.pt
+!build/model-bundle-pytorch/weights/conversion_manifest.json
