@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output",
         required=True,
-        help="Directory that will receive outputs. With --level-only this is only *_vertebral-level.nii.gz.",
+        help="Directory that will receive outputs.",
     )
     parser.add_argument(
         "--device",
@@ -49,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--level-only",
         action="store_true",
-        help="Write only *_vertebral-level.nii.gz and skip process/body plus cort/trab stages.",
+        help="Write *_vertebral-level.nii.gz and *_centroids.json; skip process/body plus cort/trab stages.",
     )
     parser.add_argument(
         "--localization-only",
@@ -143,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
             fields.append(f"centroids={result.output_paths.centroids}")
         else:
             fields.append(f"vertebral_level={result.output_paths.vertebral_level}")
+            fields.append(f"centroids={result.output_paths.centroids}")
             if not args.level_only:
                 fields.append(f"process_body={result.output_paths.process_body}")
                 fields.append(f"cort_trab={result.output_paths.cort_trab}")

@@ -72,7 +72,7 @@ class _StubBackend:
         )
 
 
-def test_segment_file_writes_three_outputs(tmp_path: Path) -> None:
+def test_segment_file_writes_default_outputs(tmp_path: Path) -> None:
     image = sitk.GetImageFromArray(np.full((6, 6, 6), 200.0, dtype=np.float32))
     input_path = tmp_path / "case.nii.gz"
     sitk.WriteImage(image, str(input_path), useCompression=True)
@@ -88,6 +88,11 @@ def test_segment_file_writes_three_outputs(tmp_path: Path) -> None:
     assert result.output_paths.vertebral_level.exists()
     assert result.output_paths.process_body.exists()
     assert result.output_paths.cort_trab.exists()
+    assert result.output_paths.centroids.exists()
+    payload = json.loads(result.output_paths.centroids.read_text(encoding="utf-8"))
+    assert payload["centroids"]["20"]["voxel_xyz"] == [2.0, 2.0, 2.0]
+    assert payload["centroids"]["20"]["voxel_count"] == 27
+    assert payload["centroids"]["20"]["source"] == "segmentation"
     assert not list((tmp_path / "out").glob(".spine-segment-tmp-*"))
 
 
@@ -106,9 +111,12 @@ def test_segment_file_level_only_writes_only_vertebral_level(tmp_path: Path) -> 
     )
 
     assert result.output_paths.vertebral_level.exists()
+    assert result.output_paths.centroids.exists()
     assert not result.output_paths.process_body.exists()
     assert not result.output_paths.cort_trab.exists()
     assert result.metadata["level_only_seen"] is True
+    payload = json.loads(result.output_paths.centroids.read_text(encoding="utf-8"))
+    assert payload["centroids"]["20"]["source"] == "segmentation"
 
 
 def test_segment_file_localization_only_writes_centroid_json(tmp_path: Path) -> None:

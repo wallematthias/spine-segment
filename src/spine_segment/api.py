@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import SimpleITK as sitk
 
 from spine_segment.backend import SpineSegmentBackend, SpineSegmentBackendError
@@ -72,10 +73,18 @@ def segment_file(
     )
 
     write_image(result.vertebral_level, output_paths.vertebral_level, overwrite=overwrite)
+    centroids = centroids_from_labelmap(result.vertebral_level)
     if level_only:
         metadata = dict(result.metadata or {})
         metadata["device"] = selected_device
         metadata["level_only"] = True
+        write_centroids_json(
+            input_path=source_path,
+            centroids=centroids,
+            metadata=metadata,
+            path=output_paths.centroids,
+            overwrite=overwrite,
+        )
         return SegmentRunResult(
             input_path=source_path,
             output_paths=output_paths,
@@ -100,6 +109,13 @@ def segment_file(
 
     metadata = dict(result.metadata or {})
     metadata["device"] = selected_device
+    write_centroids_json(
+        input_path=source_path,
+        centroids=centroids,
+        metadata=metadata,
+        path=output_paths.centroids,
+        overwrite=overwrite,
+    )
     return SegmentRunResult(
         input_path=source_path,
         output_paths=output_paths,
@@ -143,3 +159,56 @@ def write_json(payload: dict[str, Any], path: str | Path, *, overwrite: bool = F
         )
     output_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return output_path
+
+
+def write_centroids_json(
+    *,
+    input_path: Path,
+    centroids: dict[str, dict[str, Any]],
+    metadata: dict[str, Any],
+    path: str | Path,
+    overwrite: bool,
+) -> Path:
+    return write_json(
+        {
+            "input": str(input_path),
+            "coordinate_system": "voxel_xyz",
+            "centroids": centroids,
+            "metadata": metadata,
+        },
+        path,
+        overwrite=overwrite,
+    )
+
+
+def centroids_from_labelmap(labelmap: sitk.Image) -> dict[str, dict[str, Any]]:
+    labels = sitk.GetArrayFromImage(labelmap)
+    centroids: dict[str, dict[str, Any]] = {}
+    for raw_label in sorted(int(value) for value in np.unique(labels) if int(value) != 0):
+        coords_zyx = np.argwhere(labels == raw_label)
+        if coords_zyx.size == 0:
+            continue
+        centroid_zyx = coords_zyx.mean(axis=0)
+        voxel_xyz = (
+            float(centroid_zyx[2]),
+            float(centroid_zyx[1]),
+            float(centroid_zyx[0]),
+        )
+        physical_xyz = labelmap.TransformContinuousIndexToPhysicalPoint(voxel_xyz)
+        centroids[str(raw_label)] = {
+            "label": raw_label,
+            "index": _verse_index_from_label(raw_label),
+            "voxel_xyz": [float(value) for value in voxel_xyz],
+            "physical_xyz": [float(value) for value in physical_xyz],
+            "voxel_count": int(coords_zyx.shape[0]),
+            "source": "segmentation",
+        }
+    return centroids
+
+
+def _verse_index_from_label(label: int) -> int | None:
+    if 1 <= int(label) <= 25:
+        return int(label) - 1
+    if int(label) == 28:
+        return 25
+    return None
