@@ -22,18 +22,9 @@
           "bytes": 130278936,
           "path": "weights/process-body-segmenter.pt",
           "sha256": "fae180b16d090b9df96e9394b6a49e3ca2b8d1a7f80c25c72c413b3644ddb309"
-        },
-        {
-          "bytes": 1597,
-          "path": "weights/conversion_manifest.json",
-          "sha256": "0047dae103866d8b8274b69a80ac0437ebb2d3831559830949c6b81c8005f97a"
         }
       ],
       "id": "spine_segment_weights",
-      "source_root": {
-        "native_torch": "/Users/matthias.walle/Documents/14_GitHub/active/OgoLoco/packages/spine-segment/build/model-bundle-pytorch/native_torch",
-        "verse_relabel": "/Users/matthias.walle/Documents/14_GitHub/active/OgoLoco/packages/spine-segment/build/model-bundle-pytorch/nnunet/Dataset005_VerseRelabel"
-      },
       "staged_root": "weights"
     }
   ],

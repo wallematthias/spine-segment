@@ -30,9 +30,6 @@ WEIGHT_FILES = {
     ),
 }
 
-OPTIONAL_NATIVE_TORCH_FILES = ["conversion_manifest.json"]
-
-
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -74,25 +71,6 @@ def _copy_weight_file(source: Path, target_root: Path, output_name: str) -> dict
         "bytes": dst.stat().st_size,
         "sha256": _sha256(dst),
     }
-
-
-def _copy_optional_files(source_root: Path, target_root: Path, relative_paths: list[str]) -> list[dict[str, object]]:
-    copied: list[dict[str, object]] = []
-    for relative in relative_paths:
-        src = source_root / relative
-        if not src.exists():
-            continue
-        dst = target_root / relative
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
-        copied.append(
-            {
-                "path": str(dst.relative_to(target_root.parent)),
-                "bytes": dst.stat().st_size,
-                "sha256": _sha256(dst),
-            }
-        )
-    return copied
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -161,7 +139,6 @@ def main(argv: list[str] | None = None) -> int:
         for output_name, (source_kind, relative) in WEIGHT_FILES.items():
             source_root = native_torch_root if source_kind == "native_torch" else relabel_root
             weight_files.append(_copy_weight_file(source_root / relative, weights_out, output_name))
-        weight_files.extend(_copy_optional_files(native_torch_root, weights_out, OPTIONAL_NATIVE_TORCH_FILES))
 
     contents = []
     if mdat_files:

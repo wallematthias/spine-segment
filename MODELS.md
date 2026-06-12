@@ -15,7 +15,6 @@ inference subset.
 model-bundle/
   manifest.json
   weights/
-    conversion_manifest.json
     spine-locator.pt
     vertebra-locator.pt
     vertebra-segmenter.pt

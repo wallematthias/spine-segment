@@ -8,4 +8,3 @@ build/*
 !build/model-bundle-pytorch/manifest.json
 !build/model-bundle-pytorch/weights/
 !build/model-bundle-pytorch/weights/*.pt
-!build/model-bundle-pytorch/weights/conversion_manifest.json
