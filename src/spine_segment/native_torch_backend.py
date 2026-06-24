@@ -28,6 +28,16 @@ class _LocalizationStageResult:
     landmarks: list[tuple[str, Landmark]]
     spine_bbox_start: tuple[float, float, float]
     spine_bbox_end: tuple[float, float, float]
+    spine_tile_count: int = 1
+    selected_spine_tile: str = "center"
+
+
+@dataclass(frozen=True, slots=True)
+class _SpineLocalizationTile:
+    name: str
+    image_array: np.ndarray
+    transform: sitk.Transform
+    size_xyz: tuple[int, int, int]
 
 
 def _require_torch():
@@ -154,6 +164,99 @@ def _resample_centered(
         default_value=-1024.0,
     )
     return _normalize_ct(sitk.GetArrayFromImage(resampled)), transform, size_xyz
+
+
+def _spine_localization_tiles(
+    image: sitk.Image,
+    *,
+    spacing: float,
+    valid_sizes_xyz: tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]],
+) -> list[_SpineLocalizationTile]:
+    """
+    Build one or more spine-localizer inputs.
+
+    The MDAT spine-localizer supports at most the largest configured z size.
+    Whole-body scans can exceed that physical extent, so a single centered
+    resample can crop away the superior or inferior spine. For long scans,
+    evaluate overlapping z windows and let vertebra localization choose the
+    most plausible downstream crop.
+    """
+    extent_xyz = _image_extent_xyz(image)
+    centered_array, centered_transform, centered_size = _resample_centered(
+        image,
+        spacing=spacing,
+        valid_sizes_xyz=valid_sizes_xyz,
+    )
+    max_size_z = int(max(valid_sizes_xyz[2]))
+    max_extent_z = float(max_size_z) * float(spacing)
+    if extent_xyz[2] <= max_extent_z:
+        return [
+            _SpineLocalizationTile(
+                name="center",
+                image_array=centered_array,
+                transform=centered_transform,
+                size_xyz=centered_size,
+            )
+        ]
+
+    size_x = _valid_output_size_for_extent(
+        extent_xyz,
+        spacing=spacing,
+        valid_sizes_xyz=valid_sizes_xyz,
+    )[0]
+    size_y = _valid_output_size_for_extent(
+        extent_xyz,
+        spacing=spacing,
+        valid_sizes_xyz=valid_sizes_xyz,
+    )[1]
+    size_xyz = (size_x, size_y, max_size_z)
+    spacing_xyz = (float(spacing),) * 3
+    image_center = _image_center_xyz(image)
+    output_center = _output_center_xyz(size_xyz, spacing_xyz)
+    base_offset = image_center - output_center
+
+    z_min = float(image.GetOrigin()[2])
+    z_max = z_min + float(image.GetSize()[2]) * float(image.GetSpacing()[2])
+    z_last = z_max - max_extent_z
+    stride = max_extent_z * 0.75
+    starts: list[tuple[str, float]] = [("inferior", z_min)]
+    current = z_min + stride
+    tile_index = 1
+    while current < z_last:
+        starts.append((f"tile{tile_index}", current))
+        tile_index += 1
+        current += stride
+    starts.append(("superior", z_last))
+    starts.append(("center", float(base_offset[2])))
+
+    unique_starts: list[tuple[str, float]] = []
+    for name, z_start in starts:
+        z_start = float(max(z_min, min(z_start, z_last)))
+        if any(abs(z_start - existing) < 1e-3 for _n, existing in unique_starts):
+            continue
+        unique_starts.append((name, z_start))
+
+    tiles: list[_SpineLocalizationTile] = []
+    for name, z_start in unique_starts:
+        offset = np.asarray(base_offset, dtype=np.float64).copy()
+        offset[2] = z_start
+        resampled, transform = _resample_with_offset(
+            image,
+            size_xyz=size_xyz,
+            spacing_xyz=spacing_xyz,
+            offset_xyz=offset,
+            interpolator=sitk.sitkLinear,
+            default_value=-1024.0,
+        )
+        tiles.append(
+            _SpineLocalizationTile(
+                name=name,
+                image_array=_normalize_ct(sitk.GetArrayFromImage(resampled)),
+                transform=transform,
+                size_xyz=size_xyz,
+            )
+        )
+    return tiles
 
 
 def _resample_bbox_centered(
@@ -431,60 +534,107 @@ class NativeTorchBackend(SpineSegmentBackend):
         with torch.inference_mode():
             if self.progress:
                 _print_progress("running spine localization model")
-            spine_array, spine_transform, _spine_size = _resample_centered(
+            spine_tiles = _spine_localization_tiles(
                 preprocessed,
                 spacing=8.0,
                 valid_sizes_xyz=((32, 64, 96, 128), (32, 64, 96, 128), (32, 64, 96, 128)),
             )
-            spine_logits = self._spine_localization(_tensor_from_zyx(spine_array, device=device))
-            spine_heatmap = _to_numpy_zyx(spine_logits[0, 0])
 
-            bbox = bounding_box_from_heatmap(
-                spine_heatmap,
-                transformation=spine_transform,
-                image_spacing_xyz=(8.0, 8.0, 8.0),
-                threshold=0.5,
-            )
+            candidates: list[
+                tuple[
+                    tuple[int, float],
+                    str,
+                    Any,
+                    list[tuple[str, Landmark]],
+                ]
+            ] = []
+            last_error: Exception | None = None
+            for tile in spine_tiles:
+                spine_logits = self._spine_localization(
+                    _tensor_from_zyx(tile.image_array, device=device)
+                )
+                spine_heatmap = _to_numpy_zyx(spine_logits[0, 0])
 
-            if self.progress:
-                _print_progress("running vertebra localization model")
-            loc_array, loc_transform, _loc_size = _resample_bbox_centered(
-                preprocessed,
-                bbox_start_xyz=bbox.start,
-                bbox_end_xyz=bbox.end,
-                spacing=2.0,
-                valid_sizes_xyz=(
-                    (32, 64, 96, 128),
-                    (32, 64, 96, 128),
-                    tuple(32 + i * 32 for i in range(20)),
-                ),
+                try:
+                    bbox = bounding_box_from_heatmap(
+                        spine_heatmap,
+                        transformation=tile.transform,
+                        image_spacing_xyz=(8.0, 8.0, 8.0),
+                        threshold=0.5,
+                    )
+                except ValueError as exc:
+                    last_error = exc
+                    continue
+
+                loc_array, loc_transform, _loc_size = _resample_bbox_centered(
+                    preprocessed,
+                    bbox_start_xyz=bbox.start,
+                    bbox_end_xyz=bbox.end,
+                    spacing=2.0,
+                    valid_sizes_xyz=(
+                        (32, 64, 96, 128),
+                        (32, 64, 96, 128),
+                        tuple(32 + i * 32 for i in range(20)),
+                    ),
+                )
+                vertebrae_heatmaps, _local, _spatial = self._vertebrae_localization(
+                    _tensor_from_zyx(loc_array, device=device)
+                )
+                vertebrae_np = _to_numpy_zyx(vertebrae_heatmaps[0])
+                local_maxima = [
+                    _local_maxima_landmarks(
+                        vertebrae_np[index],
+                        transform=loc_transform,
+                        spacing=2.0,
+                    )
+                    for index in range(vertebrae_np.shape[0])
+                ]
+                no_post_landmarks = [
+                    candidates[0] if candidates else Landmark.invalid()
+                    for candidates in local_maxima
+                ]
+                valid_candidate_count = sum(
+                    1
+                    for candidates in local_maxima
+                    for candidate in candidates
+                    if candidate.is_valid
+                )
+                if valid_candidate_count == 0:
+                    landmarks = no_post_landmarks
+                else:
+                    landmarks = solve_spine_sequence(
+                        add_landmarks_from_neighbors(local_maxima)
+                    )
+                    landmarks = reshift_landmarks(landmarks)
+                    landmarks = filter_landmarks_top_bottom(landmarks, image=image)
+                valid_landmarks = [
+                    (str(index), landmark)
+                    for index, landmark in enumerate(landmarks)
+                    if landmark.is_valid and np.all(np.isfinite(landmark.coords))
+                ]
+                if self.max_segmentation_landmarks is not None:
+                    valid_landmarks = valid_landmarks[
+                        : int(self.max_segmentation_landmarks)
+                    ]
+                score = (
+                    len(valid_landmarks),
+                    float(sum(landmark.value for _index, landmark in valid_landmarks)),
+                )
+                candidates.append((score, tile.name, bbox, valid_landmarks))
+
+            if not candidates:
+                if last_error is not None:
+                    raise SpineSegmentBackendError(
+                        "MDAT spine localization found no valid bounding boxes."
+                    ) from last_error
+                raise SpineSegmentBackendError(
+                    "MDAT vertebra localization found no valid landmarks."
+                )
+
+            _score, selected_tile, bbox, valid_landmarks = max(
+                candidates,
+                key=lambda item: item[0],
             )
-            vertebrae_heatmaps, _local, _spatial = self._vertebrae_localization(
-                _tensor_from_zyx(loc_array, device=device)
-            )
-            vertebrae_np = _to_numpy_zyx(vertebrae_heatmaps[0])
-            local_maxima = [
-                _local_maxima_landmarks(vertebrae_np[index], transform=loc_transform, spacing=2.0)
-                for index in range(vertebrae_np.shape[0])
-            ]
-            no_post_landmarks = [
-                candidates[0] if candidates else Landmark.invalid()
-                for candidates in local_maxima
-            ]
-            valid_candidate_count = sum(1 for candidates in local_maxima for candidate in candidates if candidate.is_valid)
-            if valid_candidate_count == 0:
-                landmarks = no_post_landmarks
-            else:
-                landmarks = solve_spine_sequence(add_landmarks_from_neighbors(local_maxima))
-                landmarks = reshift_landmarks(landmarks)
-                landmarks = filter_landmarks_top_bottom(landmarks, image=image)
-            valid_landmarks = [
-                (str(index), landmark)
-                for index, landmark in enumerate(landmarks)
-                if landmark.is_valid and np.all(np.isfinite(landmark.coords))
-            ]
-            if self.max_segmentation_landmarks is not None:
-                valid_landmarks = valid_landmarks[: int(self.max_segmentation_landmarks)]
             if not valid_landmarks:
                 raise SpineSegmentBackendError("MDAT vertebra localization found no valid landmarks.")
 
@@ -492,6 +642,8 @@ class NativeTorchBackend(SpineSegmentBackend):
             landmarks=valid_landmarks,
             spine_bbox_start=bbox.start,
             spine_bbox_end=bbox.end,
+            spine_tile_count=len(spine_tiles),
+            selected_spine_tile=selected_tile,
         )
 
     def _segment_exact(
@@ -591,6 +743,8 @@ class NativeTorchBackend(SpineSegmentBackend):
                     "level_only": True,
                     "spine_bbox_start": localization.spine_bbox_start,
                     "spine_bbox_end": localization.spine_bbox_end,
+                    "spine_tile_count": localization.spine_tile_count,
+                    "selected_spine_tile": localization.selected_spine_tile,
                 },
             )
         assert self._process_body_relabeler is not None
@@ -607,6 +761,8 @@ class NativeTorchBackend(SpineSegmentBackend):
                 "process_body_source": "native_torch_segmentation_relabel",
                 "spine_bbox_start": localization.spine_bbox_start,
                 "spine_bbox_end": localization.spine_bbox_end,
+                "spine_tile_count": localization.spine_tile_count,
+                "selected_spine_tile": localization.selected_spine_tile,
             },
         )
 
@@ -659,6 +815,8 @@ class NativeTorchBackend(SpineSegmentBackend):
                 "num_landmarks": len(localization.landmarks),
                 "spine_bbox_start": localization.spine_bbox_start,
                 "spine_bbox_end": localization.spine_bbox_end,
+                "spine_tile_count": localization.spine_tile_count,
+                "selected_spine_tile": localization.selected_spine_tile,
                 "input_orientation": input_orientation,
                 "inference_orientation": "LPS",
             },

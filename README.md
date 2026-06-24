@@ -203,6 +203,12 @@ The vertebral-level model follows a three-stage coarse-to-fine pipeline:
 2. Vertebra centroid localization and identification.
 3. Per-vertebra segmentation from 1 mm isotropic patches.
 
+For long whole-body CT scans whose superior-inferior extent exceeds the coarse
+spine localizer field of view, the implementation evaluates overlapping
+localizer windows along z and selects the candidate whose downstream vertebra
+localization yields the strongest/most landmarks. Output metadata records the
+number of spine-localizer tiles and the selected tile.
+
 The implementation in this repository is native PyTorch and does not require
 TensorFlow or nnU-Net at runtime. The process/body segmentation network is
 loaded directly from a PyTorch checkpoint using a minimal in-repository model
