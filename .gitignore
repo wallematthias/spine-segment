@@ -3,6 +3,8 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 src/*.egg-info/
+dist/
+spine-segment-model-bundle-*.zip
 build/*
 !build/model-bundle-pytorch/
 !build/model-bundle-pytorch/manifest.json

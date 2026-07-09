@@ -107,8 +107,43 @@ The centroid JSON is keyed by the same vertebral labels as
 
 ## Installation
 
-The model weights are stored with Git LFS. Install Git LFS before cloning, or
-run `git lfs pull` after cloning if the weights were not downloaded.
+Install from PyPI:
+
+```bash
+python3 -m pip install spine-segment
+```
+
+The first segmentation run downloads the model bundle from the
+`spine-segment` GitHub Releases page into the local user cache, verifies the
+checkpoint SHA256 hashes, and reuses that cached bundle on later runs.
+
+To disable the automatic download on offline or managed systems:
+
+```bash
+spine-segment image.nii.gz --output ./segmentation --no-model-download
+```
+
+or set:
+
+```bash
+export SPINE_SEGMENT_NO_DOWNLOAD=1
+```
+
+To use a manually staged bundle:
+
+```bash
+export SPINE_SEGMENT_MODEL_BUNDLE=/path/to/model-bundle
+```
+
+or pass it directly:
+
+```bash
+spine-segment image.nii.gz --output ./segmentation --model-bundle /path/to/model-bundle
+```
+
+For editable development installs, the model weights are stored with Git LFS.
+Install Git LFS before cloning, or run `git lfs pull` after cloning if the
+weights were not downloaded.
 
 ```bash
 git lfs install
@@ -137,7 +172,7 @@ of PyTorch checkpoint files. Run:
 git lfs pull
 ```
 
-The default model bundle is expected at:
+The development checkout model bundle is expected at:
 
 ```text
 build/model-bundle-pytorch/
@@ -147,18 +182,6 @@ build/model-bundle-pytorch/
     vertebra-locator.pt
     vertebra-segmenter.pt
     process-body-segmenter.pt
-```
-
-To use a different bundle location:
-
-```bash
-export SPINE_SEGMENT_MODEL_BUNDLE=/path/to/model-bundle
-```
-
-or pass it directly:
-
-```bash
-spine-segment image.nii.gz --output ./segmentation --model-bundle /path/to/model-bundle
 ```
 
 ## Command Line Usage

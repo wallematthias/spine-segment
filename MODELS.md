@@ -26,6 +26,20 @@ TensorFlow `mdat/` checkpoint files and the original nnU-Net training folder are
 useful for conversion and auditing, but should be omitted from the normal
 distribution bundle once the `.pt` files have been generated/staged.
 
+## GitHub Release Asset
+
+PyPI wheels do not include the model bundle. The default runtime downloader
+expects this GitHub Release asset:
+
+```text
+tag: v0.1.0
+asset: spine-segment-model-bundle-v0.1.0.zip
+```
+
+The zip may contain `manifest.json` and `weights/` either at the archive root or
+inside a single top-level folder. At install/runtime, `spine-segment` verifies
+the extracted checkpoint SHA256 hashes before using the cached bundle.
+
 ## Excluded From Release Bundle
 
 These are useful for development, but should not be shipped in the inference

@@ -26,3 +26,4 @@ def test_spine_segment_help_smoke() -> None:
     assert result.returncode == 0
     assert "spine-segment" in result.stdout
     assert "--output" in result.stdout
+    assert "--no-model-download" in result.stdout

@@ -39,7 +39,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("SPINE_SEGMENT_MODEL_BUNDLE", ""),
         help="Path to a spine-segment model bundle. Defaults to "
         "SPINE_SEGMENT_MODEL_BUNDLE, ./model-bundle, ./build/model-bundle-pytorch, "
-        "or ./build/model-bundle.",
+        "./build/model-bundle, or an automatically downloaded cached bundle.",
+    )
+    parser.add_argument(
+        "--no-model-download",
+        action="store_true",
+        default=os.environ.get("SPINE_SEGMENT_NO_DOWNLOAD", "").strip().lower()
+        not in ("", "0", "false", "no", "off"),
+        help="Disable automatic first-run model bundle download.",
     )
     parser.add_argument(
         "--overwrite",
@@ -103,7 +110,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.backend:
         backend = load_backend(args.backend)
     else:
-        backend = create_native_backend(args.model_bundle or "./build/model-bundle")
+        backend = create_native_backend(
+            args.model_bundle or "./build/model-bundle",
+            allow_download=not bool(args.no_model_download),
+        )
     if hasattr(backend, "vertebra_segmentation_batch_size"):
         backend.vertebra_segmentation_batch_size = max(1, int(args.vertebra_batch_size))
     if hasattr(backend, "process_body_batch_size"):

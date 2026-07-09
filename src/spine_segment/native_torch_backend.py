@@ -12,6 +12,7 @@ import SimpleITK as sitk
 from spine_segment.backend import LocalizationResult, SegmentationResult, SpineSegmentBackend, SpineSegmentBackendError
 from spine_segment.landmarks import Landmark
 from spine_segment.model_bundle import (
+    ensure_default_native_torch_bundle,
     NativeTorchBundlePaths,
     resolve_native_torch_bundle,
     validate_native_torch_bundle,
@@ -823,7 +824,15 @@ class NativeTorchBackend(SpineSegmentBackend):
         )
 
 
-def create_backend(bundle_root: str | Path = "./build/model-bundle") -> NativeTorchBackend:
+def _env_flag_enabled(value: str | None) -> bool:
+    return value is not None and value.strip().lower() not in ("", "0", "false", "no", "off")
+
+
+def create_backend(
+    bundle_root: str | Path = "./build/model-bundle",
+    *,
+    allow_download: bool = True,
+) -> NativeTorchBackend:
     if str(bundle_root) != "./build/model-bundle":
         return NativeTorchBackend(bundle_root=Path(bundle_root))
 
@@ -845,4 +854,6 @@ def create_backend(bundle_root: str | Path = "./build/model-bundle") -> NativeTo
     for candidate in candidates:
         if candidate.exists():
             return NativeTorchBackend(bundle_root=candidate)
+    if allow_download and not _env_flag_enabled(os.environ.get("SPINE_SEGMENT_NO_DOWNLOAD")):
+        return NativeTorchBackend(bundle_root=ensure_default_native_torch_bundle())
     return NativeTorchBackend(bundle_root=Path(bundle_root))
