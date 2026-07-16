@@ -3,6 +3,16 @@ from __future__ import annotations
 from typing import Any
 
 
+def _mps_supports_conv3d(torch_ref: Any) -> bool:
+    try:
+        layer = torch_ref.nn.Conv3d(1, 1, kernel_size=1).to("mps")
+        sample = torch_ref.zeros((1, 1, 3, 3, 3), device="mps")
+        layer(sample)
+        return True
+    except Exception:
+        return False
+
+
 def resolve_device(
     requested: str = "auto",
     *,
@@ -30,7 +40,7 @@ def resolve_device(
         pass
 
     try:
-        if bool(torch_ref.backends.mps.is_available()):
+        if bool(torch_ref.backends.mps.is_available()) and _mps_supports_conv3d(torch_ref):
             return "mps"
     except Exception:
         pass
