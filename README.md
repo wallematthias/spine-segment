@@ -1,5 +1,9 @@
 # spine-segment
 
+<p align="center">
+  <img src="docs/assets/spine-segment-icon.png" alt="spine-segment icon" width="160">
+</p>
+
 `spine-segment` is a lightweight command-line tool for vertebral CT
 segmentation. It provides a native PyTorch implementation of the coarse-to-fine
 vertebra localization, identification, and segmentation approach described by
