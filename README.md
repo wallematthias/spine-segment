@@ -242,10 +242,11 @@ loaded directly from a PyTorch checkpoint using a minimal in-repository model
 definition.
 
 The cortical/trabecular compartment output is derived from the vertebral-level
-segmentation and CT intensities. The current post-processing keeps the outer
-surface constrained to the vertebral labelmap, assigns a minimum one-voxel
-cortical outline, and allows connected high-density cortical extension within a
-6 mm shell.
+segmentation and CT intensities. It covers every labeled vertebra in the
+vertebral-level map. The current post-processing keeps the outer surface
+constrained to the vertebral labelmap, assigns a minimum one-voxel cortical
+outline, and allows connected high-density cortical extension within a 6 mm
+shell.
 
 ## Citations
 

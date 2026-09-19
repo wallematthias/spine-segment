@@ -66,6 +66,40 @@ def test_derive_cort_trab_labels_uses_full_vertebral_level_mask() -> None:
     assert out_arr[1, 4, 4] == CORTICAL_LABEL
 
 
+def test_derive_cort_trab_labels_covers_every_vertebral_level() -> None:
+    image_arr = np.full((15, 9, 9), 100.0, dtype=np.float32)
+    process_body_arr = np.zeros((15, 9, 9), dtype=np.uint8)
+    process_body_arr[1:6, 2:7, 2:7] = BODY_LABEL
+    process_body_arr[9:14, 2:7, 2:7] = BODY_LABEL
+
+    vertebral_arr = np.zeros((15, 9, 9), dtype=np.uint8)
+    vertebral_arr[1:6, 2:7, 2:7] = 20
+    vertebral_arr[9:14, 2:7, 2:7] = 21
+
+    image = sitk.GetImageFromArray(image_arr)
+    process_body = sitk.GetImageFromArray(process_body_arr)
+    vertebral_level = sitk.GetImageFromArray(vertebral_arr)
+    image.SetSpacing((1.0, 1.0, 1.0))
+    process_body.CopyInformation(image)
+    vertebral_level.CopyInformation(image)
+
+    out = derive_cort_trab_labels(
+        image=image,
+        process_body=process_body,
+        vertebral_level=vertebral_level,
+        config=CortTrabConfig(
+            cortical_threshold_hu=500.0,
+            cortical_max_thickness_mm=2.0,
+        ),
+    )
+    out_arr = sitk.GetArrayFromImage(out)
+
+    for level in (20, 21):
+        selected = out_arr[vertebral_arr == level]
+        assert set(np.unique(selected)) <= {CORTICAL_LABEL, TRABECULAR_LABEL}
+        assert np.count_nonzero(selected == TRABECULAR_LABEL) > 0
+
+
 def test_derive_cort_trab_labels_uses_connected_high_density_annulus() -> None:
     image_arr = np.full((17, 17, 17), 100.0, dtype=np.float32)
     process_body_arr = np.zeros((17, 17, 17), dtype=np.uint8)

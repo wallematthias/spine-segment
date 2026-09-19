@@ -25,7 +25,6 @@ def derive_cort_trab_labels(
 ) -> sitk.Image:
     cfg = config or CortTrabConfig()
     roi_mask = sitk.Cast((vertebral_level > 0) if vertebral_level is not None else (process_body > 0), sitk.sitkUInt8)
-    roi_mask = _largest_component_mask(roi_mask)
     roi_arr = sitk.GetArrayFromImage(roi_mask).astype(bool)
     output = np.zeros(roi_arr.shape, dtype=np.uint8)
     if not np.any(roi_arr):
@@ -97,12 +96,6 @@ def derive_cort_trab_labels(
     out_img = sitk.GetImageFromArray(output)
     out_img.CopyInformation(process_body)
     return out_img
-
-
-def _largest_component_mask(mask: sitk.Image) -> sitk.Image:
-    connected = sitk.ConnectedComponent(sitk.Cast(mask > 0, sitk.sitkUInt8))
-    relabeled = sitk.RelabelComponent(connected, sortByObjectSize=True)
-    return sitk.Cast(relabeled == 1, sitk.sitkUInt8)
 
 
 def _keep_components_touching_seed(*, candidate: np.ndarray, seed: np.ndarray) -> np.ndarray:
