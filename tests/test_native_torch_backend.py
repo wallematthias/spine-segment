@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import SimpleITK as sitk
+import numpy as np
 
 from spine_segment.native_torch_backend import (
     _landmark_label_from_index,
     _spine_localization_tiles,
+    _vertebrae_localization_tiles,
 )
 
 
@@ -34,3 +36,25 @@ def test_spine_localization_tiles_cover_long_whole_body_scan() -> None:
     assert min(tile_z_starts) == -1570.5
     assert max(tile_z_starts) == -734.5
     assert any(abs(z_start - -1151.0) < 1.0 for z_start in tile_z_starts)
+
+
+def test_vertebrae_localization_tiles_cover_large_crop_with_overlap() -> None:
+    image = np.zeros((256, 128, 128), dtype=np.float32)
+    transform = sitk.TranslationTransform(3, (10.0, 20.0, 30.0))
+
+    tiles = _vertebrae_localization_tiles(
+        image,
+        transform=transform,
+        spacing=2.0,
+        max_depth=128,
+    )
+
+    assert [tile.name for tile in tiles] == ["slab0", "slab1", "slab2"]
+    assert [tile.image_array.shape for tile in tiles] == [
+        (128, 128, 128),
+        (128, 128, 128),
+        (128, 128, 128),
+    ]
+    assert [
+        tile.transform.TransformPoint((0.0, 0.0, 0.0))[2] for tile in tiles
+    ] == [30.0, 158.0, 286.0]

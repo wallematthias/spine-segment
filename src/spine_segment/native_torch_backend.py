@@ -41,6 +41,13 @@ class _SpineLocalizationTile:
     size_xyz: tuple[int, int, int]
 
 
+@dataclass(frozen=True, slots=True)
+class _VertebraeLocalizationTile:
+    name: str
+    image_array: np.ndarray
+    transform: sitk.Transform
+
+
 def _require_torch():
     try:
         import torch
@@ -290,6 +297,38 @@ def _resample_bbox_centered(
         default_value=-1024.0,
     )
     return _normalize_ct(sitk.GetArrayFromImage(resampled)), transform, size_xyz
+
+
+def _vertebrae_localization_tiles(
+    image_array: np.ndarray,
+    *,
+    transform: sitk.Transform,
+    spacing: float,
+    max_depth: int = 128,
+) -> list[_VertebraeLocalizationTile]:
+    """Split a large spine crop into overlapping z slabs for stable SCN inference."""
+    depth = int(image_array.shape[0])
+    tile_depth = min(depth, int(max_depth))
+    if depth <= tile_depth:
+        starts = [0]
+    else:
+        step = max(1, tile_depth // 2)
+        starts = list(range(0, depth - tile_depth + 1, step))
+        final_start = depth - tile_depth
+        if starts[-1] != final_start:
+            starts.append(final_start)
+
+    tiles = []
+    for index, start in enumerate(starts):
+        origin = transform.TransformPoint((0.0, 0.0, float(start) * float(spacing)))
+        tiles.append(
+            _VertebraeLocalizationTile(
+                name=f"slab{index}",
+                image_array=image_array[start : start + tile_depth],
+                transform=_translation_transform(origin),
+            )
+        )
+    return tiles
 
 
 def _tensor_from_zyx(array: np.ndarray, *, device: str):
@@ -578,18 +617,28 @@ class NativeTorchBackend(SpineSegmentBackend):
                         tuple(32 + i * 32 for i in range(20)),
                     ),
                 )
-                vertebrae_heatmaps, _local, _spatial = self._vertebrae_localization(
-                    _tensor_from_zyx(loc_array, device=device)
+                localization_tiles = _vertebrae_localization_tiles(
+                    loc_array,
+                    transform=loc_transform,
+                    spacing=2.0,
                 )
-                vertebrae_np = _to_numpy_zyx(vertebrae_heatmaps[0])
-                local_maxima = [
-                    _local_maxima_landmarks(
-                        vertebrae_np[index],
-                        transform=loc_transform,
-                        spacing=2.0,
+                local_maxima: list[list[Landmark]] = [[] for _ in range(26)]
+                for localization_tile in localization_tiles:
+                    vertebrae_heatmaps, _local, _spatial = self._vertebrae_localization(
+                        _tensor_from_zyx(
+                            localization_tile.image_array,
+                            device=device,
+                        )
                     )
-                    for index in range(vertebrae_np.shape[0])
-                ]
+                    vertebrae_np = _to_numpy_zyx(vertebrae_heatmaps[0])
+                    for index in range(vertebrae_np.shape[0]):
+                        local_maxima[index].extend(
+                            _local_maxima_landmarks(
+                                vertebrae_np[index],
+                                transform=localization_tile.transform,
+                                spacing=2.0,
+                            )
+                        )
                 no_post_landmarks = [
                     candidates[0] if candidates else Landmark.invalid()
                     for candidates in local_maxima
