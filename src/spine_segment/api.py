@@ -43,6 +43,8 @@ def segment_file(
     localization_only: bool = False,
     centroids_path: str | Path | None = None,
 ) -> SegmentRunResult:
+    if level_only and localization_only:
+        raise ValueError("level_only and localization_only are mutually exclusive")
     if centroids_path is not None and not level_only:
         raise ValueError("centroids_path requires level_only=True")
     if centroids_path is not None and localization_only:
@@ -265,10 +267,17 @@ def merge_centroid_metadata(
     segmented: dict[str, dict[str, Any]],
     supplied: dict[str, dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    return {
-        label: {**supplied.get(label, {}), **entry}
-        for label, entry in segmented.items()
+    merged = {
+        label: {
+            **entry,
+            **segmented.get(label, {}),
+            "segmentation_status": "segmented" if label in segmented else "missing",
+        }
+        for label, entry in supplied.items()
     }
+    for label, entry in segmented.items():
+        merged.setdefault(label, {**entry, "segmentation_status": "segmented"})
+    return merged
 
 
 def write_json(payload: dict[str, Any], path: str | Path, *, overwrite: bool = False) -> Path:

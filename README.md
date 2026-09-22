@@ -120,6 +120,7 @@ The centroid JSON is keyed by the same vertebral labels as
 | `voxel_count` | Number of voxels for segmentation-derived centroids |
 | `score` | Localization model response, only for `--localization-only` |
 | `source` | Centroid source, usually `segmentation` in normal mode |
+| `segmentation_status` | `segmented` or `missing` when `--centroids` supplies the landmark |
 
 ## Installation
 

@@ -190,6 +190,22 @@ def test_segment_file_localization_only_writes_centroid_json(tmp_path: Path) -> 
     assert payload["metadata"]["localization_only"] is True
 
 
+def test_segment_file_rejects_level_only_with_localization_only_before_io(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="level_only and localization_only are mutually exclusive",
+    ):
+        segment_file(
+            input_path=tmp_path / "does-not-exist.nii.gz",
+            output_dir=tmp_path / "out",
+            backend=_StubBackend(),
+            level_only=True,
+            localization_only=True,
+        )
+
+
 def test_segment_file_level_only_consumes_centroids_once_without_localization(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -231,9 +247,51 @@ def test_segment_file_level_only_consumes_centroids_once_without_localization(
     assert payload["centroids"]["20"]["score"] == 0.9
     assert payload["centroids"]["20"]["schema_tag"] == "preserve-me"
     assert payload["centroids"]["20"]["source"] == "segmentation"
+    assert payload["centroids"]["20"]["segmentation_status"] == "segmented"
     assert payload["metadata"]["input_centroids_metadata"] == {
         "backend": "localizer",
         "schema_version": 1,
+    }
+
+
+def test_segment_file_preserves_supplied_centroid_missing_from_segmentation(
+    tmp_path: Path,
+) -> None:
+    image = sitk.GetImageFromArray(np.full((8, 8, 8), 200.0, dtype=np.float32))
+    input_path = tmp_path / "case.nii.gz"
+    sitk.WriteImage(image, str(input_path), useCompression=True)
+    centroids_path = tmp_path / "localized.json"
+    _write_centroid_artifact(centroids_path, image)
+    artifact = json.loads(centroids_path.read_text(encoding="utf-8"))
+    artifact["centroids"]["21"] = {
+        "label": 21,
+        "index": 20,
+        "voxel_xyz": [5.0, 5.0, 5.0],
+        "physical_xyz": [5.0, 5.0, 5.0],
+        "score": 0.4,
+        "schema_tag": "missing-but-preserved",
+    }
+    centroids_path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    result = segment_file(
+        input_path=input_path,
+        output_dir=tmp_path / "out",
+        backend=_StubBackend(),
+        device="cpu",
+        overwrite=True,
+        level_only=True,
+        centroids_path=centroids_path,
+    )
+
+    payload = json.loads(result.output_paths.centroids.read_text(encoding="utf-8"))
+    assert payload["centroids"]["21"] == {
+        "label": 21,
+        "index": 20,
+        "voxel_xyz": [5.0, 5.0, 5.0],
+        "physical_xyz": [5.0, 5.0, 5.0],
+        "score": 0.4,
+        "schema_tag": "missing-but-preserved",
+        "segmentation_status": "missing",
     }
 
 
@@ -268,7 +326,7 @@ def test_load_centroid_artifact_rejects_physical_geometry_mismatch(tmp_path: Pat
     ("level_only", "localization_only", "message"),
     [
         (False, False, "requires level_only=True"),
-        (True, True, "cannot be combined with localization_only=True"),
+        (True, True, "level_only and localization_only are mutually exclusive"),
     ],
 )
 def test_segment_file_rejects_invalid_centroid_mode_combinations(
