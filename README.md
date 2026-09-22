@@ -36,6 +36,18 @@ Two reduced-output modes are available:
 - `--level-only`: writes `*_vertebral-level.nii.gz` and `*_centroids.json`
 - `--localization-only`: writes only `*_centroids.json`
 
+`--level-only` can consume a centroid artifact produced by
+`--localization-only`, skipping the localization models:
+
+```bash
+spine-segment image.nii.gz --output ./segmentation --level-only \
+  --centroids ./localization/image_centroids.json
+```
+
+The centroid artifact must describe the same CT geometry and can only be used
+with one input CT. Stable fields from each supplied centroid, including the
+localization score, are retained in the resulting centroid JSON.
+
 The centroid JSON is keyed by vertebral label. For example, label `20`
 corresponds to L1 in the VerSe convention used by this model:
 
@@ -206,6 +218,14 @@ Write only vertebral-level labels:
 
 ```bash
 spine-segment image.nii.gz --output ./segmentation --level-only
+```
+
+Write vertebral-level labels from an existing centroid artifact without
+running localization:
+
+```bash
+spine-segment image.nii.gz --output ./segmentation --level-only \
+  --centroids ./localization/image_centroids.json --device cpu --overwrite
 ```
 
 Write only vertebral centroids from the localization model:

@@ -64,6 +64,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write only *_centroids.json with detected vertebral centroids in original scan voxel coordinates.",
     )
     parser.add_argument(
+        "--centroids",
+        help="Existing *_centroids.json artifact used by --level-only instead of localization.",
+    )
+    parser.add_argument(
         "--vertebra-batch-size",
         type=int,
         default=1,
@@ -107,6 +111,17 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         parser.error(f"Input does not exist: {missing[0]}")
 
+    if args.localization_only and args.level_only:
+        parser.error("--localization-only and --level-only are mutually exclusive.")
+    if args.centroids and not args.level_only:
+        parser.error("--centroids requires --level-only.")
+    if args.centroids and args.localization_only:
+        parser.error("--centroids cannot be combined with --localization-only.")
+    if args.centroids and len(inputs) != 1:
+        parser.error("--centroids requires exactly one input CT.")
+    if args.centroids and not Path(args.centroids).is_file():
+        parser.error(f"Centroid artifact does not exist: {args.centroids}")
+
     if args.backend:
         backend = load_backend(args.backend)
     else:
@@ -123,9 +138,6 @@ def main(argv: list[str] | None = None) -> int:
         isotropic_spacing_mm=float(args.cort_trab_isotropic_spacing_mm),
         cortical_max_thickness_mm=float(args.cortical_max_thickness_mm),
     )
-    if args.localization_only and args.level_only:
-        parser.error("--localization-only and --level-only are mutually exclusive.")
-
     try:
         results = segment_files(
             input_paths=inputs,
@@ -136,12 +148,16 @@ def main(argv: list[str] | None = None) -> int:
             cort_trab_config=cort_trab_config,
             level_only=bool(args.level_only),
             localization_only=bool(args.localization_only),
+            centroids_path=args.centroids,
         )
     except SpineSegmentBackendError as exc:
         print(f"[spine-segment] backend error: {exc}")
         return 2
     except FileExistsError as exc:
         print(f"[spine-segment] output exists: {exc}")
+        return 2
+    except (OSError, ValueError) as exc:
+        print(f"[spine-segment] input error: {exc}")
         return 2
 
     for result in results:

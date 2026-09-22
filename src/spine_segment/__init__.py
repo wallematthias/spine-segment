@@ -1,4 +1,4 @@
-from spine_segment.api import segment_file, segment_files
+from spine_segment.api import CentroidArtifact, load_centroid_artifact, segment_file, segment_files
 from spine_segment.backend import (
     SegmentationResult,
     SpineSegmentBackend,
@@ -8,9 +8,11 @@ from spine_segment.backend import (
 
 __all__ = [
     "SegmentationResult",
+    "CentroidArtifact",
     "SpineSegmentBackend",
     "SpineSegmentBackendError",
     "load_backend",
+    "load_centroid_artifact",
     "segment_file",
     "segment_files",
 ]

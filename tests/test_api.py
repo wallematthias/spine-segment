@@ -4,14 +4,20 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 import SimpleITK as sitk
 
+from spine_segment import api
 from spine_segment.api import segment_file
 from spine_segment.backend import LocalizationResult, SegmentationResult
 from spine_segment.labels import BODY_LABEL, PROCESS_LABEL
 
 
 class _StubBackend:
+    def __init__(self) -> None:
+        self.localization_calls = 0
+        self.level_centroids: dict[str, dict[str, object]] | None = None
+
     def localize(
         self,
         *,
@@ -19,6 +25,7 @@ class _StubBackend:
         source_path: Path,
         device: str,
     ) -> LocalizationResult:
+        self.localization_calls += 1
         return LocalizationResult(
             centroids={
                 "20": {
@@ -70,6 +77,48 @@ class _StubBackend:
             process_body=process_body,
             metadata=metadata,
         )
+
+    def segment_levels(
+        self,
+        *,
+        image: sitk.Image,
+        source_path: Path,
+        device: str,
+        centroids: dict[str, dict[str, object]],
+    ) -> SegmentationResult:
+        self.level_centroids = centroids
+        return self.segment(
+            image=image,
+            source_path=source_path,
+            device=device,
+            level_only=True,
+        )
+
+
+def _write_centroid_artifact(path: Path, image: sitk.Image) -> None:
+    voxel_xyz = (2.0, 3.0, 4.0)
+    path.write_text(
+        json.dumps(
+            {
+                "input": "localization-source.nii.gz",
+                "coordinate_system": "voxel_xyz",
+                "centroids": {
+                    "20": {
+                        "label": 20,
+                        "index": 19,
+                        "voxel_xyz": list(voxel_xyz),
+                        "physical_xyz": list(
+                            image.TransformContinuousIndexToPhysicalPoint(voxel_xyz)
+                        ),
+                        "score": 0.9,
+                        "schema_tag": "preserve-me",
+                    }
+                },
+                "metadata": {"backend": "localizer", "schema_version": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_segment_file_writes_default_outputs(tmp_path: Path) -> None:
@@ -139,3 +188,108 @@ def test_segment_file_localization_only_writes_centroid_json(tmp_path: Path) -> 
     assert not result.output_paths.vertebral_level.exists()
     assert payload["centroids"]["20"]["voxel_xyz"] == [2.0, 3.0, 4.0]
     assert payload["metadata"]["localization_only"] is True
+
+
+def test_segment_file_level_only_consumes_centroids_once_without_localization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    image = sitk.GetImageFromArray(np.full((8, 8, 8), 200.0, dtype=np.float32))
+    image.SetSpacing((0.5, 0.75, 2.0))
+    image.SetOrigin((-10.0, 5.0, 20.0))
+    input_path = tmp_path / "case.nii.gz"
+    sitk.WriteImage(image, str(input_path), useCompression=True)
+    centroids_path = tmp_path / "localized.json"
+    _write_centroid_artifact(centroids_path, image)
+    backend = _StubBackend()
+    read_count = 0
+    original_read_text = Path.read_text
+
+    def count_centroid_reads(path: Path, *args, **kwargs) -> str:
+        nonlocal read_count
+        if path == centroids_path:
+            read_count += 1
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", count_centroid_reads)
+
+    result = segment_file(
+        input_path=input_path,
+        output_dir=tmp_path / "out",
+        backend=backend,
+        device="cpu",
+        overwrite=True,
+        level_only=True,
+        centroids_path=centroids_path,
+    )
+
+    assert read_count == 1
+    assert backend.localization_calls == 0
+    assert backend.level_centroids is not None
+    assert backend.level_centroids["20"]["schema_tag"] == "preserve-me"
+    payload = json.loads(result.output_paths.centroids.read_text(encoding="utf-8"))
+    assert payload["centroids"]["20"]["index"] == 19
+    assert payload["centroids"]["20"]["score"] == 0.9
+    assert payload["centroids"]["20"]["schema_tag"] == "preserve-me"
+    assert payload["centroids"]["20"]["source"] == "segmentation"
+    assert payload["metadata"]["input_centroids_metadata"] == {
+        "backend": "localizer",
+        "schema_version": 1,
+    }
+
+
+def test_load_centroid_artifact_rejects_coordinates_outside_ct(tmp_path: Path) -> None:
+    image = sitk.Image([8, 8, 8], sitk.sitkFloat32)
+    path = tmp_path / "outside.json"
+    _write_centroid_artifact(path, image)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["centroids"]["20"]["voxel_xyz"] = [2.0, 3.0, 8.0]
+    payload["centroids"]["20"]["physical_xyz"] = list(
+        image.TransformContinuousIndexToPhysicalPoint((2.0, 3.0, 8.0))
+    )
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="outside the input CT"):
+        api.load_centroid_artifact(path, image=image)
+
+
+def test_load_centroid_artifact_rejects_physical_geometry_mismatch(tmp_path: Path) -> None:
+    image = sitk.Image([8, 8, 8], sitk.sitkFloat32)
+    path = tmp_path / "mismatch.json"
+    _write_centroid_artifact(path, image)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["centroids"]["20"]["physical_xyz"] = [200.0, 300.0, 400.0]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="does not match the input CT geometry"):
+        api.load_centroid_artifact(path, image=image)
+
+
+@pytest.mark.parametrize(
+    ("level_only", "localization_only", "message"),
+    [
+        (False, False, "requires level_only=True"),
+        (True, True, "cannot be combined with localization_only=True"),
+    ],
+)
+def test_segment_file_rejects_invalid_centroid_mode_combinations(
+    tmp_path: Path,
+    level_only: bool,
+    localization_only: bool,
+    message: str,
+) -> None:
+    image = sitk.Image([8, 8, 8], sitk.sitkFloat32)
+    input_path = tmp_path / "case.nii.gz"
+    sitk.WriteImage(image, str(input_path))
+    centroids_path = tmp_path / "centroids.json"
+    _write_centroid_artifact(centroids_path, image)
+
+    with pytest.raises(ValueError, match=message):
+        segment_file(
+            input_path=input_path,
+            output_dir=tmp_path / "out",
+            backend=_StubBackend(),
+            device="cpu",
+            level_only=level_only,
+            localization_only=localization_only,
+            centroids_path=centroids_path,
+        )

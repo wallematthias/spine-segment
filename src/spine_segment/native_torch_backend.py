@@ -385,6 +385,26 @@ def _landmarks_to_centroids(
     return centroids
 
 
+def _centroids_to_landmarks(
+    centroids: dict[str, dict[str, Any]],
+) -> list[tuple[str, Landmark]]:
+    landmarks = []
+    for entry in sorted(centroids.values(), key=lambda item: int(item["index"])):
+        physical_xyz = entry["physical_xyz"]
+        landmarks.append(
+            (
+                str(int(entry["index"])),
+                Landmark(
+                    float(physical_xyz[0]),
+                    float(physical_xyz[1]),
+                    float(physical_xyz[2]),
+                    value=float(entry.get("score", 0.0)),
+                ),
+            )
+        )
+    return landmarks
+
+
 def _smooth_array(image: np.ndarray, *, sigma: float) -> np.ndarray:
     if sigma <= 0:
         return image.astype(np.float32, copy=False)
@@ -488,10 +508,16 @@ class NativeTorchBackend(SpineSegmentBackend):
         if self.strict_bundle:
             validate_native_torch_bundle(self._bundle_paths)
 
-    def _load_models(self, device: str, *, require_segmentation: bool = True) -> None:
-        if require_segmentation and self._models_loaded:
-            return
-        if not require_segmentation and (self._localization_models_loaded or self._models_loaded):
+    def _load_models(
+        self,
+        device: str,
+        *,
+        require_segmentation: bool = True,
+        require_localization: bool = True,
+    ) -> None:
+        segmentation_ready = not require_segmentation or self._models_loaded
+        localization_ready = not require_localization or self._localization_models_loaded
+        if segmentation_ready and localization_ready:
             return
         if self.progress:
             _print_progress(f"loading native PyTorch checkpoints from {self.bundle_root}")
@@ -532,7 +558,7 @@ class NativeTorchBackend(SpineSegmentBackend):
         }
 
         target_device = torch.device(device)
-        if not self._localization_models_loaded:
+        if require_localization and not self._localization_models_loaded:
             spine_localization = build_model(specs["spine_localization"])
             vertebrae_localization = build_model(specs["vertebrae_localization"])
             spine_localization.load_state_dict(
@@ -703,13 +729,18 @@ class NativeTorchBackend(SpineSegmentBackend):
         source_path: Path,
         device: str,
         level_only: bool = False,
+        landmarks: list[tuple[str, Landmark]] | None = None,
     ) -> SegmentationResult:
         torch = _require_torch()
         assert self._vertebrae_segmentation is not None
 
         preprocessed = _preprocess_source_image(image)
-        localization = self._localize_exact(image, source_path=source_path, device=device)
-        valid_landmarks = localization.landmarks
+        localization = None
+        if landmarks is None:
+            localization = self._localize_exact(image, source_path=source_path, device=device)
+            valid_landmarks = localization.landmarks
+        else:
+            valid_landmarks = landmarks
 
         with torch.inference_mode():
             if self.progress:
@@ -784,19 +815,28 @@ class NativeTorchBackend(SpineSegmentBackend):
 
         vertebral_level = _copy_array_to_image(prediction_labels_np, image)
         if level_only:
+            metadata = {
+                "backend": "native_torch_mdat",
+                "device": device,
+                "num_landmarks": len(valid_landmarks),
+                "level_only": True,
+            }
+            if localization is None:
+                metadata["landmark_source"] = "centroid_artifact"
+            else:
+                metadata.update(
+                    {
+                        "spine_bbox_start": localization.spine_bbox_start,
+                        "spine_bbox_end": localization.spine_bbox_end,
+                        "spine_tile_count": localization.spine_tile_count,
+                        "selected_spine_tile": localization.selected_spine_tile,
+                    }
+                )
             return SegmentationResult(
                 vertebral_level=vertebral_level,
-                metadata={
-                    "backend": "native_torch_mdat",
-                    "device": device,
-                    "num_landmarks": len(valid_landmarks),
-                    "level_only": True,
-                    "spine_bbox_start": localization.spine_bbox_start,
-                    "spine_bbox_end": localization.spine_bbox_end,
-                    "spine_tile_count": localization.spine_tile_count,
-                    "selected_spine_tile": localization.selected_spine_tile,
-                },
+                metadata=metadata,
             )
+        assert localization is not None
         assert self._process_body_relabeler is not None
         if self.progress:
             _print_progress("running process/body relabel model from vertebral segmentation")
@@ -871,6 +911,36 @@ class NativeTorchBackend(SpineSegmentBackend):
                 "inference_orientation": "LPS",
             },
         )
+
+    def segment_levels(
+        self,
+        *,
+        image: sitk.Image,
+        source_path: Path,
+        device: str,
+        centroids: dict[str, dict[str, Any]],
+    ) -> SegmentationResult:
+        self._load_models(
+            device,
+            require_segmentation=True,
+            require_localization=False,
+        )
+        input_orientation = _orientation_code(image)
+        working_image = _orient_image(image, "LPS")
+        result = self._segment_exact(
+            working_image,
+            source_path=source_path,
+            device=device,
+            level_only=True,
+            landmarks=_centroids_to_landmarks(centroids),
+        )
+        result.vertebral_level = _orient_image(result.vertebral_level, input_orientation)
+        result.metadata = {
+            **(result.metadata or {}),
+            "input_orientation": input_orientation,
+            "inference_orientation": "LPS",
+        }
+        return result
 
 
 def _env_flag_enabled(value: str | None) -> bool:

@@ -45,6 +45,15 @@ class SpineSegmentBackend(Protocol):
         device: str,
     ) -> LocalizationResult: ...
 
+    def segment_levels(
+        self,
+        *,
+        image: sitk.Image,
+        source_path: Path,
+        device: str,
+        centroids: dict[str, dict[str, Any]],
+    ) -> SegmentationResult: ...
+
 
 class UnavailableBackend:
     def segment(
@@ -69,6 +78,19 @@ class UnavailableBackend:
         source_path: Path,
         device: str,
     ) -> LocalizationResult:
+        raise SpineSegmentBackendError(
+            "No standalone spine backend is wired yet. "
+            "Provide --backend module_path:factory or set SPINE_SEGMENT_BACKEND."
+        )
+
+    def segment_levels(
+        self,
+        *,
+        image: sitk.Image,
+        source_path: Path,
+        device: str,
+        centroids: dict[str, dict[str, Any]],
+    ) -> SegmentationResult:
         raise SpineSegmentBackendError(
             "No standalone spine backend is wired yet. "
             "Provide --backend module_path:factory or set SPINE_SEGMENT_BACKEND."
