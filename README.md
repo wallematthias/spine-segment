@@ -36,6 +36,14 @@ Two reduced-output modes are available:
 - `--level-only`: writes `*_vertebral-level.nii.gz` and `*_centroids.json`
 - `--localization-only`: writes only `*_centroids.json`
 
+Localization uses a confidence-weighted anatomical sequence selector. The default
+`--sequence-confidence-weight 0.8` favors detected label evidence over a rigid
+average-spine shape prior, while retaining geometry penalties for implausible
+connections. This avoids dropping confident vertebrae in curved spines. The weight
+is recorded in centroid metadata; `0.2` reproduces the historical weighting.
+No missing vertebrae are synthesized, and the existing image-boundary exclusion
+remains unchanged. Anatomical numbering still requires visual QC.
+
 `--level-only` can consume a centroid artifact produced by
 `--localization-only`, skipping the localization models:
 

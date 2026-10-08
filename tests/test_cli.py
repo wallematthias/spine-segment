@@ -4,11 +4,13 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 import SimpleITK as sitk
 
 from spine_segment import cli
+from spine_segment.sequence_solver import SpineSequenceConfig
 
 
 def test_spine_segment_help_smoke() -> None:
@@ -33,6 +35,37 @@ def test_spine_segment_help_smoke() -> None:
     assert "--output" in result.stdout
     assert "--no-model-download" in result.stdout
     assert "--centroids" in result.stdout
+    assert "--sequence-confidence-weight" in result.stdout
+
+
+@pytest.mark.parametrize("weight", ["0", "1", "nan", "inf", "-0.1"])
+def test_sequence_weight_is_validated_before_loading_models(weight, tmp_path, monkeypatch):
+    source = tmp_path / "case.nii.gz"
+    source.touch()
+
+    def fail_backend_loading(*args, **kwargs):
+        raise AssertionError("invalid arguments must not load models")
+
+    monkeypatch.setattr(cli, "create_native_backend", fail_backend_loading)
+    with pytest.raises(SystemExit) as exc:
+        cli.main([str(source), "--output", str(tmp_path / "out"),
+                  "--sequence-confidence-weight", weight])
+    assert exc.value.code == 2
+
+
+def test_sequence_weight_reaches_native_backend(tmp_path, monkeypatch):
+    source = tmp_path / "case.nii.gz"
+    source.touch()
+    backend = SimpleNamespace(sequence_config=SpineSequenceConfig(lambda_weight=.2))
+    monkeypatch.setattr(cli, "create_native_backend", lambda *a, **kw: backend)
+
+    def execute(**kwargs):
+        assert kwargs["backend"].sequence_config.lambda_weight == .7
+        return []
+
+    monkeypatch.setattr(cli, "segment_files", execute)
+    assert cli.main([str(source), "--output", str(tmp_path / "out"),
+                     "--sequence-confidence-weight", ".7"]) == 0
 
 
 @pytest.mark.parametrize(

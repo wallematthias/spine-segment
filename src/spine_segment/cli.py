@@ -9,6 +9,7 @@ from spine_segment.backend import SpineSegmentBackendError, load_backend
 from spine_segment.compartments import CortTrabConfig
 from spine_segment.io import expand_input_paths
 from spine_segment.native_torch_backend import create_backend as create_native_backend
+from spine_segment.sequence_solver import SpineSequenceConfig
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -68,6 +69,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Existing *_centroids.json artifact used by --level-only instead of localization.",
     )
     parser.add_argument(
+        "--sequence-confidence-weight",
+        type=float,
+        default=SpineSequenceConfig().lambda_weight,
+        help="Localization confidence versus average-spine geometry weight (0 < weight < 1). "
+        "Higher values preserve confident detections in curved spines; historical value: 0.2.",
+    )
+    parser.add_argument(
         "--vertebra-batch-size",
         type=int,
         default=1,
@@ -122,6 +130,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.centroids and not Path(args.centroids).is_file():
         parser.error(f"Centroid artifact does not exist: {args.centroids}")
 
+    try:
+        sequence_config = SpineSequenceConfig(lambda_weight=args.sequence_confidence_weight)
+    except ValueError as exc:
+        parser.error(str(exc))
+
     if args.backend:
         backend = load_backend(args.backend)
     else:
@@ -129,6 +142,8 @@ def main(argv: list[str] | None = None) -> int:
             args.model_bundle or "./build/model-bundle",
             allow_download=not bool(args.no_model_download),
         )
+    if hasattr(backend, "sequence_config"):
+        backend.sequence_config = sequence_config
     if hasattr(backend, "vertebra_segmentation_batch_size"):
         backend.vertebra_segmentation_batch_size = max(1, int(args.vertebra_batch_size))
     if hasattr(backend, "process_body_batch_size"):

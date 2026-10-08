@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from pathlib import Path
 from typing import Any
@@ -21,7 +21,7 @@ from spine_segment.postprocess import bounding_box_from_heatmap
 from spine_segment.postprocess import add_landmarks_from_neighbors, filter_landmarks_top_bottom, reshift_landmarks
 from spine_segment.process_body_relabel import ProcessBodyRelabeler
 from spine_segment.pytorch_models import MdatArchitectureSpec, build_model
-from spine_segment.sequence_solver import solve_spine_sequence
+from spine_segment.sequence_solver import SpineSequenceConfig, solve_spine_sequence
 
 
 @dataclass(frozen=True, slots=True)
@@ -494,6 +494,7 @@ class NativeTorchBackend(SpineSegmentBackend):
     vertebra_segmentation_batch_size: int = 1
     process_body_batch_size: int = 4
     progress: bool = True
+    sequence_config: SpineSequenceConfig = field(default_factory=SpineSequenceConfig)
     _bundle_paths: NativeTorchBundlePaths | None = None
     _models_loaded: bool = False
     _localization_models_loaded: bool = False
@@ -679,7 +680,8 @@ class NativeTorchBackend(SpineSegmentBackend):
                     landmarks = no_post_landmarks
                 else:
                     landmarks = solve_spine_sequence(
-                        add_landmarks_from_neighbors(local_maxima)
+                        add_landmarks_from_neighbors(local_maxima),
+                        config=self.sequence_config,
                     )
                     landmarks = reshift_landmarks(landmarks)
                     landmarks = filter_landmarks_top_bottom(landmarks, image=image)
@@ -830,6 +832,7 @@ class NativeTorchBackend(SpineSegmentBackend):
                         "spine_bbox_end": localization.spine_bbox_end,
                         "spine_tile_count": localization.spine_tile_count,
                         "selected_spine_tile": localization.selected_spine_tile,
+                        "sequence_confidence_weight": self.sequence_config.lambda_weight,
                     }
                 )
             return SegmentationResult(
@@ -853,6 +856,7 @@ class NativeTorchBackend(SpineSegmentBackend):
                 "spine_bbox_end": localization.spine_bbox_end,
                 "spine_tile_count": localization.spine_tile_count,
                 "selected_spine_tile": localization.selected_spine_tile,
+                "sequence_confidence_weight": self.sequence_config.lambda_weight,
             },
         )
 
@@ -907,6 +911,7 @@ class NativeTorchBackend(SpineSegmentBackend):
                 "spine_bbox_end": localization.spine_bbox_end,
                 "spine_tile_count": localization.spine_tile_count,
                 "selected_spine_tile": localization.selected_spine_tile,
+                "sequence_confidence_weight": self.sequence_config.lambda_weight,
                 "input_orientation": input_orientation,
                 "inference_orientation": "LPS",
             },

@@ -13,7 +13,12 @@ from spine_segment.graph_resources import load_spine_graph_resources
 @dataclass(frozen=True, slots=True)
 class SpineSequenceConfig:
     bias: float = 2.0
-    lambda_weight: float = 0.2
+    # The old shape-heavy prior can replace confident detections in curved spines.
+    lambda_weight: float = 0.8
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.lambda_weight) or not 0 < self.lambda_weight < 1:
+            raise ValueError("sequence confidence weight must be finite and between 0 and 1")
 
 
 def _distance_value(
